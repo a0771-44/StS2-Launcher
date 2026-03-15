@@ -293,6 +293,10 @@ public class GodotApp extends GodotActivity {
 		return gameDir;
 	}
 
+	public String getVersionName() {
+		return BuildConfig.VERSION_NAME;
+	}
+
 	public void restartApp() {
 		Log.i(TAG, "Restarting app...");
 		Intent intent = getPackageManager().getLaunchIntentForPackage(getPackageName());

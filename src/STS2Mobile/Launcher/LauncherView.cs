@@ -114,6 +114,8 @@ public class LauncherView
 
     public void AppendLog(string msg) => Log.AppendLog(msg);
 
+    public void AppendColoredLog(string msg, Godot.Color color) => Log.AppendColoredLog(msg, color);
+
     public void HideAllSections()
     {
         Login.Visible = false;

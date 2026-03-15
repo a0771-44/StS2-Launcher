@@ -281,8 +281,45 @@ public class LauncherController
         _checkingForUpdates = true;
         _view.Actions.SetUpdateButtonDisabled(true);
         _view.Actions.SetUpdateButtonText("Checking...");
+
+        // Check for launcher (APK) updates from GitHub in parallel with game file updates.
+        var appUpdateTask = CheckAppUpdateAsync();
         await _model.CheckForUpdatesAsync();
+        await appUpdateTask;
+
         _checkingForUpdates = false;
+    }
+
+    private static readonly Color YellowLog = new(1f, 0.85f, 0.2f);
+
+    private async Task CheckAppUpdateAsync()
+    {
+        try
+        {
+            var result = await AppUpdateChecker.CheckAsync();
+            if (!result.HasUpdate)
+            {
+                _runOnMainThread(() => _view.AppendLog("Launcher is up to date"));
+            }
+            else
+            {
+                _runOnMainThread(() =>
+                {
+                    _view.AppendColoredLog(
+                        $"Launcher update available: v{result.LatestVersion} — "
+                            + "download at https://github.com/Ekyso/StS2-Launcher/releases/latest",
+                        YellowLog
+                    );
+                    _view.SetStatus(
+                        $"Launcher update available! Visit GitHub to download v{result.LatestVersion}"
+                    );
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            PatchHelper.Log($"[Launcher] App update check failed: {ex.Message}");
+        }
     }
 
     private void OnLocalBackupToggled(bool pressed)

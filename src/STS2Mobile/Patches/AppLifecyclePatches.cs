@@ -242,7 +242,11 @@ public static class AppLifecyclePatches
     {
         try
         {
-            try { SteamKit2CloudSaveStore.Instance?.Flush(5000); } catch { }
+            try
+            {
+                SteamKit2CloudSaveStore.Instance?.Flush(5000);
+            }
+            catch { }
 
             PatchHelper.Log("NGame.Quit intercepted, restarting app");
             var jcw = Engine.GetSingleton("JavaClassWrapper");
