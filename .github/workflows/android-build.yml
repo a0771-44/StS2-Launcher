@@ -1,4 +1,4 @@
-name: Build StS2 Launcher APK
+name: Build StS2-Launcher APK (Stable)
 
 on:
   push:
@@ -10,87 +10,53 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      # --------------------
+      # 1. Checkout
+      # --------------------
+      - uses: actions/checkout@v4
 
-      # -------------------------
-      # .NET
-      # -------------------------
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+      # --------------------
+      # 2. Java (필수)
+      # --------------------
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
-          dotnet-version: 8.0.x
+          distribution: temurin
+          java-version: 17
 
-      - name: Install CSharpier
-        run: |
-          dotnet tool install -g csharpier
-          echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
-
-      # -------------------------
-      # Godot
-      # -------------------------
-
-      - name: Install Godot dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            unzip \
-            libfontconfig1 \
-            libx11-6 \
-            libxcursor1
-
-      - name: Download Godot Mono
-        run: |
-          wget https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_mono_linux_x86_64.zip
-          unzip Godot_v4.3-stable_mono_linux_x86_64.zip
-          chmod +x Godot_v4.3-stable_mono_linux_x86_64/Godot_v4.3-stable_mono_linux.x86_64
-
-      - name: Build Godot C# solution
-        run: |
-          ./Godot_v4.3-stable_mono_linux_x86_64/Godot_v4.3-stable_mono_linux.x86_64 \
-          --headless \
-          --editor \
-          --build-solutions \
-          --quit
-
-      # -------------------------
-      # Android SDK
-      # -------------------------
-
+      # --------------------
+      # 3. Android SDK
+      # --------------------
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android packages
+      - name: Install SDK packages
         run: |
           sdkmanager "platform-tools"
           sdkmanager "platforms;android-35"
           sdkmanager "build-tools;35.0.0"
           sdkmanager "ndk;28.1.13356709"
 
-      # -------------------------
-      # Run project build script
-      # -------------------------
-
-      - name: Run build script
+      # --------------------
+      # 4. Fix Gradle wrapper (중요)
+      # --------------------
+      - name: Ensure Gradle wrapper exists
         run: |
-          chmod +x scripts/build.sh
-          ./scripts/build.sh
+          cd android
+          ls -la
 
-      # -------------------------
-      # Build APK
-      # -------------------------
-
+      # --------------------
+      # 5. Build APK
+      # --------------------
       - name: Build APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew clean assembleDebug --no-daemon
 
-      # -------------------------
-      # Upload APK
-      # -------------------------
-
+      # --------------------
+      # 6. Upload APK
+      # --------------------
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
