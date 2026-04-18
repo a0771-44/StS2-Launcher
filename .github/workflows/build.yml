@@ -22,7 +22,8 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Grant execute permission
-        run: chmod +x gradlew
+        run: cd sts2launcher/android && chmod +x gradlew
+      - run: cd sts2launcher/android && ./gradlew assembleDebug
 
       - name: Build APK
         run: ./gradlew assembleDebug
