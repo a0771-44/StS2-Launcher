@@ -241,6 +241,8 @@ public class GodotApp extends GodotActivity {
 				Log.i(TAG, "Using bootstrap PCK for launcher-only mode");
 			}
 		}
+		commands.add("--rendering driver");
+		commands.add("opengl3");
 		return commands;
 	}
 
