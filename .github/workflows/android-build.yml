@@ -1,4 +1,4 @@
-name: Build StS2-Launcher APK (Stable)
+name: Build StS2-Launcher Android APK
 
 on:
   push:
@@ -9,56 +9,82 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    steps:
-      # --------------------
-      # 1. Checkout
-      # --------------------
-      - uses: actions/checkout@v4
+    env:
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      JAVA_HOME: /usr/lib/jvm/temurin-17-jdk-amd64
 
-      # --------------------
-      # 2. Java (필수)
-      # --------------------
-      - name: Setup Java
+    steps:
+      # =========================
+      # 1. Checkout
+      # =========================
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # =========================
+      # 2. JDK 17 (필수 고정)
+      # =========================
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
-      # --------------------
+      # =========================
       # 3. Android SDK
-      # --------------------
+      # =========================
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install SDK packages
+      - name: Install Android SDK packages
         run: |
+          sdkmanager --licenses || true
           sdkmanager "platform-tools"
           sdkmanager "platforms;android-35"
           sdkmanager "build-tools;35.0.0"
           sdkmanager "ndk;28.1.13356709"
 
-      # --------------------
-      # 4. Fix Gradle wrapper (중요)
-      # --------------------
-      - name: Ensure Gradle wrapper exists
+      # =========================
+      # 4. Gradle cache (속도 개선)
+      # =========================
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*') }}
+
+      # =========================
+      # 5. Gradle 권한
+      # =========================
+      - name: Make gradlew executable (fallback safe)
+        run: |
+          if [ -f android/gradlew ]; then
+            chmod +x android/gradlew
+          fi
+
+      # =========================
+      # 6. Gradle wrapper 없을 때 fallback
+      # =========================
+      - name: Build APK (robust mode)
         run: |
           cd android
-          ls -la
 
-      # --------------------
-      # 5. Build APK
-      # --------------------
-      - name: Build APK
-        run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew clean assembleDebug --no-daemon
+          # wrapper 있으면 사용
+          if [ -f "./gradlew" ]; then
+            echo "Using Gradle Wrapper"
+            ./gradlew clean assembleDebug --stacktrace
+          else
+            echo "Gradle Wrapper missing → using system gradle"
+            gradle clean assembleDebug --stacktrace
+          fi
 
-      # --------------------
-      # 6. Upload APK
-      # --------------------
+      # =========================
+      # 7. APK 업로드
+      # =========================
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: StS2-Launcher-APK
-          path: android/**/build/outputs/apk/**/*.apk
+          path: |
+            android/**/build/outputs/apk/**/*.apk
