@@ -18,16 +18,10 @@ jobs:
           dotnet-version: 8.0.x
           
       - name: Setup Godot
-        # You may pin to the exact commit or the version.
-        # uses: Vitorgus/Setup-Godot@74955da65a6ceea4a391a5e70b3c24297475acaf
         uses: Vitorgus/Setup-Godot@v1.1.1
         with:
-          # Godot version to download
           godot-version: 4.2.2
-          # If set to true, will download de mono version of Godot
-          mono: # optional
-          # If set to false, will skip the default export templates download
-          download-templates: # optional, default is true
+          mono: true
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -37,17 +31,17 @@ jobs:
 
       - name: Install Android Build Template
         run: |
-          mkdir -p ~/.local/share/godot/export_templates/4.2.2.stable
-          wget https://github.com/godotengine/godot/releases/download/4.2.2-stable/Godot_v4.2.2-stable_export_templates.tpz
-          unzip Godot_v4.2.2-stable_export_templates.tpz -d templates
-          mv templates/templates/* ~/.local/share/godot/export_templates/4.2.2.stable/
+          mkdir -p ~/.local/share/godot/export_templates/4.2.2.mono.stable
+          wget https://github.com/godotengine/godot/releases/download/4.2.2-stable/Godot_v4.2.2-stable_mono_export_templates.tpz
+          unzip Godot_v4.2.2-stable_mono_export_templates.tpz -d templates
+          mv templates/templates/* ~/.local/share/godot/export_templates/4.2.2.mono.stable/
 
       - name: Build C# project
         run: dotnet build src/STS2Mobile/STS2Mobile.csproj
 
       - name: Export Android
         run: |
-          "$GODOT_BIN" \
+          godot \
             --headless \
             --export-release Android build.apk
 
