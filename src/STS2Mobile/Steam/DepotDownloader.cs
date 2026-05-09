@@ -225,7 +225,7 @@ public class DepotDownloader : IDisposable
                     continue;
             }
 
-            var gidNode = manifests["public"]["gid"];
+            var gidNode = manifests["Beta"]["gid"];
             if (gidNode == KeyValue.Invalid || gidNode.Value == null)
                 continue;
 
