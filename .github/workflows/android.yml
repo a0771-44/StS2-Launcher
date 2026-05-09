@@ -16,22 +16,17 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
-
-      - name: Download Godot
-        run: |
-          wget https://github.com/godotengine/godot/releases/download/4.2.2-stable/Godot_v4.2.2-stable_mono_linux_x86_64.zip
-      
-          unzip Godot_v4.2.2-stable_mono_linux_x86_64.zip
-      
-          ls -lah
-      
-          GODOT_BIN=$(find . -type f -name "Godot*" | head -n 1)
-      
-          echo "Found: $GODOT_BIN"
-      
-          chmod +x "$GODOT_BIN"
-      
-          echo "GODOT_BIN=$GODOT_BIN" >> $GITHUB_ENV
+      - name: Setup Godot
+        # You may pin to the exact commit or the version.
+        # uses: Vitorgus/Setup-Godot@74955da65a6ceea4a391a5e70b3c24297475acaf
+        uses: Vitorgus/Setup-Godot@v1.1.1
+        with:
+          # Godot version to download
+          godot-version: 
+          # If set to true, will download de mono version of Godot
+          mono: # optional
+          # If set to false, will skip the default export templates download
+          download-templates: # optional, default is true
 
       - name: Install Android Build Template
         run: |
