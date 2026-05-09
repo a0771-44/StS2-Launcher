@@ -16,6 +16,7 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
+          
       - name: Setup Godot
         # You may pin to the exact commit or the version.
         # uses: Vitorgus/Setup-Godot@74955da65a6ceea4a391a5e70b3c24297475acaf
@@ -27,6 +28,12 @@ jobs:
           mono: # optional
           # If set to false, will skip the default export templates download
           download-templates: # optional, default is true
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
 
       - name: Install Android Build Template
         run: |
