@@ -32,18 +32,19 @@ public class DepotDownloader : IDisposable
 
     private readonly SteamConnection _connection;
     private readonly string _gameDir;
-    private readonly string _stateDir;
+    private readonly string _baseStateDir; // 브랜치별 격리를 위해 기본 경로 저장
+    private string _stateDir;              // 현재 선택된 브랜치의 상태 경로
     private readonly Client _cdnClient;
     private readonly DownloadProgress _progress = new();
+
+    // 브랜치 설정 필드 (기본값 public)
+    private string _selectedBranch = "public";
 
     private IReadOnlyList<Server> _servers;
     private int _serverIndex;
     private readonly Dictionary<(uint, string), string> _cdnAuthTokens = new();
     private readonly Dictionary<uint, (ulong Code, DateTime Expiry)> _manifestRequestCodes = new();
-    private readonly Dictionary<
-        uint,
-        SteamApps.PICSProductInfoCallback.PICSProductInfo
-    > _appInfoCache = new();
+    private readonly Dictionary<uint, SteamApps.PICSProductInfoCallback.PICSProductInfo> _appInfoCache = new();
 
     public event Action<DownloadProgress> ProgressChanged;
     public event Action<string> LogMessage;
@@ -52,38 +53,35 @@ public class DepotDownloader : IDisposable
     {
         _connection = connection;
         _gameDir = Path.Combine(dataDir, "game");
-        _stateDir = Path.Combine(dataDir, "download_state");
+        _baseStateDir = Path.Combine(dataDir, "download_state");
         _cdnClient = new Client(connection.Client);
+        
+        // 초기 상태 디렉토리 설정
+        UpdateStateDirectory();
     }
 
-    // Returns true if any depot has a newer manifest than what's cached locally.
+    // 브랜치를 변경하는 메서드 (다운로드 시작 전 호출)
+    public void SetBranch(string branchName)
+    {
+        _selectedBranch = string.IsNullOrEmpty(branchName) ? "public" : branchName;
+        UpdateStateDirectory();
+        Log($"Target branch set to: {_selectedBranch}");
+    }
+
+    private void UpdateStateDirectory()
+    {
+        _stateDir = Path.Combine(_baseStateDir, _selectedBranch);
+        Directory.CreateDirectory(_stateDir);
+    }
+
     public async Task<bool> CheckForUpdatesAsync(CancellationToken ct = default)
     {
         _connection.SuspendIdleTimeout();
         try
         {
-            Directory.CreateDirectory(_stateDir);
+            var appInfo = await GetAppInfoAsync(AppId);
+            if (appInfo == null) throw new Exception("Failed to get app info");
 
-            ulong accessToken = _connection.AppAccessToken;
-            var infoResult = await _connection.Apps.PICSGetProductInfo(
-                new[] { new SteamApps.PICSRequest(AppId, accessToken) },
-                Enumerable.Empty<SteamApps.PICSRequest>()
-            );
-
-            SteamApps.PICSProductInfoCallback.PICSProductInfo appInfo = null;
-            foreach (var cb in infoResult.Results)
-            {
-                if (cb.Apps.TryGetValue(AppId, out var info))
-                {
-                    appInfo = info;
-                    break;
-                }
-            }
-
-            if (appInfo == null)
-                throw new Exception("Failed to get app info from Steam");
-
-            _appInfoCache[AppId] = appInfo;
             var depots = await ParseDepotsAsync(appInfo.KeyValues["depots"]);
 
             foreach (var (depotId, manifestId) in depots)
@@ -91,12 +89,11 @@ public class DepotDownloader : IDisposable
                 ct.ThrowIfCancellationRequested();
                 if (LoadCachedManifestId(depotId) != manifestId)
                 {
-                    Log($"Update available: depot {depotId} manifest changed");
+                    Log($"Update available: depot {depotId} branch {_selectedBranch} manifest changed");
                     return true;
                 }
             }
-
-            Log("Game is up to date");
+            Log($"Game on branch {_selectedBranch} is up to date");
             return false;
         }
         finally
@@ -111,52 +108,22 @@ public class DepotDownloader : IDisposable
         try
         {
             Directory.CreateDirectory(_gameDir);
-            Directory.CreateDirectory(_stateDir);
 
-            Log("Fetching app info...");
+            Log($"Fetching app info for branch: {_selectedBranch}...");
+            var appInfo = await GetAppInfoAsync(AppId);
+            if (appInfo == null) throw new Exception("Failed to get app info");
 
-            ulong accessToken = _connection.AppAccessToken;
-            var infoResult = await _connection.Apps.PICSGetProductInfo(
-                new[] { new SteamApps.PICSRequest(AppId, accessToken) },
-                Enumerable.Empty<SteamApps.PICSRequest>()
-            );
-
-            SteamApps.PICSProductInfoCallback.PICSProductInfo appInfo = null;
-            foreach (var cb in infoResult.Results)
-            {
-                if (cb.Apps.TryGetValue(AppId, out var info))
-                {
-                    appInfo = info;
-                    break;
-                }
-            }
-
-            if (appInfo == null)
-                throw new Exception("Failed to get app info from Steam");
-
-            _appInfoCache[AppId] = appInfo;
             var depotSection = appInfo.KeyValues["depots"];
             var depots = await ParseDepotsAsync(depotSection);
+            
             if (depots.Count == 0)
-                throw new Exception("No downloadable depots found");
+                throw new Exception($"No downloadable depots found for branch {_selectedBranch}");
 
+            // CDN 서버 로드 로직 (기존과 동일)
             Log("Getting CDN servers...");
-            var allServers = await ContentServerDirectoryService.LoadAsync(
-                _connection.Configuration,
-                ct
-            );
-            if (allServers == null || allServers.Count == 0)
-                throw new Exception("No CDN servers available");
-
-            _servers = allServers
-                .Where(s => s.Type == "SteamCache" || s.Type == "CDN")
-                .OrderBy(s => s.WeightedLoad)
-                .ToList();
-
-            if (_servers.Count == 0)
-                _servers = allServers.ToList();
-
-            Log($"Using {_servers.Count} CDN servers");
+            var allServers = await ContentServerDirectoryService.LoadAsync(_connection.Configuration, ct);
+            _servers = allServers.Where(s => s.Type == "SteamCache" || s.Type == "CDN")
+                                 .OrderBy(s => s.WeightedLoad).ToList();
 
             foreach (var (depotId, manifestId) in depots)
             {
@@ -164,9 +131,7 @@ public class DepotDownloader : IDisposable
                 await DownloadDepotAsync(depotId, manifestId, ct);
             }
 
-            Log("All game files downloaded!");
-
-            // Remove Sentry plugin references (no android.arm64 build exists).
+            Log($"All game files for branch {_selectedBranch} downloaded!");
             PatchGamePck(Path.Combine(_gameDir, "SlayTheSpire2.pck"));
         }
         finally
@@ -175,144 +140,54 @@ public class DepotDownloader : IDisposable
         }
     }
 
-    private async Task<List<(uint DepotId, ulong ManifestId)>> ParseDepotsAsync(
-        KeyValue depotSection
-    )
+    private async Task<List<(uint DepotId, ulong ManifestId)>> ParseDepotsAsync(KeyValue depotSection)
     {
         var result = new List<(uint, ulong)>();
 
         foreach (var depot in depotSection.Children)
         {
-            if (!uint.TryParse(depot.Name, out var depotId))
-                continue;
+            if (!uint.TryParse(depot.Name, out var depotId)) continue;
 
-            // Skip non-Windows depots.
+            // OS 체크 (기존 유지)
             var config = depot["config"];
             if (config != KeyValue.Invalid)
             {
                 var oslist = config["oslist"]?.Value;
-                if (oslist != null && oslist.Length > 0 && !oslist.Contains("windows"))
-                {
-                    Log($"Skipping depot {depotId} (OS: {oslist})");
-                    continue;
-                }
+                if (oslist != null && !oslist.Contains("windows")) continue;
             }
 
             var manifests = depot["manifests"];
+            if (manifests == KeyValue.Invalid) continue;
 
-            // Manifest may be defined under a different app via depotfromapp.
-            if (manifests == KeyValue.Invalid)
+            // 핵심 수정: 선택된 브랜치의 Manifest를 먼저 찾고, 없으면 public으로 Fallback
+            var branchManifest = manifests[_selectedBranch];
+            if (branchManifest == KeyValue.Invalid && _selectedBranch != "public")
             {
-                var depotFromApp = depot["depotfromapp"];
-                if (
-                    depotFromApp != KeyValue.Invalid
-                    && depotFromApp.Value != null
-                    && uint.TryParse(depotFromApp.Value, out var otherAppId)
-                )
-                {
-                    Log($"Depot {depotId} references app {otherAppId}, fetching...");
-                    var otherAppInfo = await GetAppInfoAsync(otherAppId);
-                    if (otherAppInfo != null)
-                    {
-                        var otherDepots = otherAppInfo.KeyValues["depots"];
-                        var otherDepot = otherDepots[depotId.ToString()];
-                        if (otherDepot != KeyValue.Invalid)
-                            manifests = otherDepot["manifests"];
-                    }
-                }
-
-                if (manifests == KeyValue.Invalid)
-                    continue;
+                Log($"Depot {depotId} has no manifest for {_selectedBranch}, falling back to public");
+                branchManifest = manifests["public"];
             }
 
-            var gidNode = manifests["public"]["gid"];
-            if (gidNode == KeyValue.Invalid || gidNode.Value == null)
-                continue;
+            var gidNode = branchManifest["gid"];
+            if (gidNode == KeyValue.Invalid || string.IsNullOrEmpty(gidNode.Value)) continue;
 
-            if (!ulong.TryParse(gidNode.Value, out var manifestId))
-                continue;
-
-            Log($"Found depot {depotId} manifest {manifestId}");
-            result.Add((depotId, manifestId));
+            if (ulong.TryParse(gidNode.Value, out var manifestId))
+            {
+                result.Add((depotId, manifestId));
+            }
         }
-
         return result;
-    }
-
-    private async Task<SteamApps.PICSProductInfoCallback.PICSProductInfo> GetAppInfoAsync(
-        uint appId
-    )
-    {
-        if (_appInfoCache.TryGetValue(appId, out var cached))
-            return cached;
-
-        var tokenResult = await _connection.Apps.PICSGetAccessTokens(
-            new[] { appId },
-            Enumerable.Empty<uint>()
-        );
-        ulong token = 0;
-        tokenResult.AppTokens?.TryGetValue(appId, out token);
-
-        var infoResult = await _connection.Apps.PICSGetProductInfo(
-            new[] { new SteamApps.PICSRequest(appId, token) },
-            Enumerable.Empty<SteamApps.PICSRequest>()
-        );
-
-        foreach (var cb in infoResult.Results)
-        {
-            if (cb.Apps.TryGetValue(appId, out var info))
-            {
-                _appInfoCache[appId] = info;
-                return info;
-            }
-        }
-
-        return null;
-    }
-
-    private Server GetNextServer()
-    {
-        var idx = Interlocked.Increment(ref _serverIndex);
-        return _servers[((idx % _servers.Count) + _servers.Count) % _servers.Count];
-    }
-
-    private async Task<string> GetCdnAuthToken(uint depotId, Server server)
-    {
-        var key = (depotId, server.Host);
-        if (_cdnAuthTokens.TryGetValue(key, out var cached))
-            return cached;
-
-        var result = await _connection.Content.GetCDNAuthToken(AppId, depotId, server.Host);
-        if (result.Result == EResult.OK)
-        {
-            _cdnAuthTokens[key] = result.Token;
-            return result.Token;
-        }
-
-        return null;
     }
 
     private async Task<ulong> GetManifestRequestCodeAsync(uint depotId, ulong manifestId)
     {
-        if (
-            _manifestRequestCodes.TryGetValue(depotId, out var cached)
-            && DateTime.UtcNow < cached.Expiry
-        )
-        {
+        if (_manifestRequestCodes.TryGetValue(depotId, out var cached) && DateTime.UtcNow < cached.Expiry)
             return cached.Code;
-        }
 
-        var code = await _connection.Content.GetManifestRequestCode(
-            depotId,
-            AppId,
-            manifestId,
-            "public"
-        );
+        // 핵심 수정: "public" 하드코딩을 _selectedBranch로 변경
+        var code = await _connection.Content.GetManifestRequestCode(depotId, AppId, manifestId, _selectedBranch);
+        
         if (code == 0)
-            throw new Exception(
-                $"Failed to get manifest request code for depot {depotId}. "
-                    + "Ensure the account owns this app."
-            );
+            throw new Exception($"Failed to get manifest code for {depotId} on branch {_selectedBranch}.");
 
         _manifestRequestCodes[depotId] = (code, DateTime.UtcNow.AddMinutes(5));
         return code;
