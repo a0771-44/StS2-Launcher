@@ -1,6 +1,4 @@
-
-
-name: Android CI
+name: Build Android
 
 on:
   push:
@@ -14,31 +12,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK
-        uses: actions/setup-java@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
         with:
-          distribution: temurin
-          java-version: 17
+          dotnet-version: 8.0.x
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Install Android workload
+        run: dotnet workload install android
 
-      - name: Grant execute permission
-        run: chmod +x gradlew
+      - name: Restore
+        run: dotnet restore src/STS2Mobile/STS2Mobile.csproj
 
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+      - name: Build
+        run: dotnet build src/STS2Mobile/STS2Mobile.csproj -c Release
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug
+      - name: Publish
+        run: dotnet publish src/STS2Mobile/STS2Mobile.csproj -c Release -f net8.0-android
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: '**/*.apk'
+          name: android-build
+          path: |
+            src/STS2Mobile/bin/Release/**/*
